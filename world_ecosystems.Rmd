@@ -1,0 +1,179 @@
+---
+title: "World Ecosystems map"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(raster) ### NOTE: attach this BEFORE tidyverse
+library(rgdal)
+library(tidyverse)
+library(here)
+library(sf) # simple features package (for shapefiles)
+```
+
+
+
+```{r}
+GDALinfo(here('USGSEsriTNC2020',
+                          'commondata',
+                          'raster_data',
+                          'WorldEcosystem.tif'))
+
+GDALinfo(here("sb_ecosystems.tif"))
+```
+
+
+```{r}
+ecosystems <- raster(here('USGSEsriTNC2020',
+                          'commondata',
+                          'raster_data',
+                          'WorldEcosystem.tif')) 
+ca_shp <- st_read(here("ca-state-boundary","CA_State_TIGER2016.shp")) 
+sb_shp <- st_read(here("sb-county-boundary",
+                       "data",
+                       "commondata",
+                       "county_boundaries",
+                       "SB_only.shp")) 
+```
+
+```{r}
+# --- plot using ggplot
+plot(ecosystems)
+
+```
+
+
+
+```{r}
+# ---- GET SB ECOSYTEM RASTER ----
+
+# checking CRS matches 
+crs(ecosystems)
+crs(sb_shp)
+
+# match CRS
+sb_shp <-st_transform(sb_shp,crs=crs(ecosystems))
+
+# because ecosystems is too big, we need to make an intermediate cropping
+
+sb_ecos_box <- crop(x = ecosystems, y = st_bbox(sb_shp))
+#plot(sb_ecos_box)
+
+sb_ecos <- mask(sb_ecos_box,
+                 fasterize::fasterize(sb_shp, sb_ecos_box))
+rm(ecosystems)
+rm(sb_ecos_box)
+#rm(sb_shp)
+
+#writeRaster(sb_ecos, "sb_ecosystems.tif")
+
+
+
+# --- raster statistics ---
+#print(summary(sb_ecos))
+#print(maxValue(sb_ecos))
+#print(minValue(sb_ecos))
+```
+
+
+
+```{r}
+unique(sb_ecos)
+writeRaster(sb_ecos, "TNC_sb_ecosystems_2020.tif")
+
+plot(sb_ecos)
+#click(sb_ecos)
+```
+
+```{r}
+eco_sample <- sb_ecos == 183
+values(eco_sample)[values(eco_sample) != TRUE] <- NA
+values(eco_sample)[values(eco_sample) == TRUE] <- 1
+
+plot(eco_sample)
+```
+
+
+```{r}
+usgs_sb_ecos <- raster(here("sb_ecosystems.tif")) 
+
+oak_savanna <- usgs_sb_ecos == 65
+values(oak_savanna)[values(oak_savanna) != TRUE] <- NA
+values(oak_savanna)[values(oak_savanna) == TRUE] <- 1
+
+plot(oak_savanna)
+
+
+# -- match crs
+crs(oak_savanna)
+crs(sb_ecos)
+oak_savanna <- projectRaster(oak_savanna,crs=crs(sb_ecos), method = "ngb" )
+
+#overlap <- oak_savanna * sb_ecos
+# misstmatched resolutions
+res(oak_savanna)
+res(sb_ecos)
+
+```
+
+
+
+```{r}
+#usgs_sb_ecos_df <- as.data.frame(usgs_sb_ecos, xy = TRUE)
+#head(usgs_sb_ecos_df)
+
+# coordinates in usgs_sb_ecos with assigned ecosystem
+usgs_sb_ecos_df <- read_csv(here('sb_ecosystems.csv')) %>% 
+                   filter(ecosystem != 602) %>% 
+                   select(x,y,ecosystem,usgsID)
+                   
+
+
+y0 <- 35.11466
+x0 <- -120.6716
+
+usgs_xy <- usgs_sb_ecos_df %>% 
+           select(x,y,ecosystem,usgsID) %>% 
+            
+           mutate(dist = abs((x -x0) + (y -y0))) %>% 
+           arrange(dist) 
+usgs_xy$usgsID[1]
+
+# -----------------------------------------------
+find_ecos <- function(x0,y0){
+  usgs_xy <- usgs_sb_ecos_df %>% 
+           select(x,y,ecosystem,usgsID) %>% 
+           mutate(dist = abs((x -x0) + (y -y0))) %>% 
+           arrange(dist)
+  return(usgs_xy$usgsID[1])
+}
+
+find_ecos(x0,y0)
+
+
+dim(usgs_xy)[1]
+
+```
+
+
+```{r}
+df_eco_sample <- as.data.frame(eco_sample, xy = TRUE) %>% 
+  filter(is.na(layer) == FALSE) %>% 
+  select(x,y)
+
+match_ecos <- character(length = dim(df_eco_sample)[1])
+for (i in 1:dim(df_eco_sample)[1]){
+  match_ecos[i] <- find_ecos(df_eco_sample$x[i],df_eco_sample$y[i])
+} 
+
+unique(match_ecos)
+df_match_ecos <- as.data.frame(match_ecos) %>% 
+  filter(match_ecos != "") %>% 
+  group_by(match_ecos) %>% 
+  count()
+```
+
+
+
+
