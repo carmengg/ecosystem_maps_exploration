@@ -1,0 +1,81 @@
+---
+title: "AOO_EOO_workflow"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, message= FALSE)
+library(raster) ### NOTE: attach this BEFORE tidyverse
+library(tidyverse)
+library(here)
+library(sf) # simple features package (for shapefiles)
+library(janitor)
+
+# IUCN Red List of Ecosystems Analysis
+# https://cran.r-project.org/web/packages/redlistr/vignettes/redlistr-vignette.html
+library(rgeos)
+library(rgdal)
+library(redlistr)
+```
+```{r}
+
+```
+
+
+```{r}
+
+# --- open SB ecosystems raster and SB shapefile
+
+sb_ecos <- raster(here("sb_ecosystems.tif")) 
+sb_shp <- st_read(here("sb-county-boundary",
+                       "data",
+                       "commondata",
+                       "county_boundaries",
+                       "SB_only.shp")) 
+
+plot(sb_ecos)
+
+# --- coordinates info 
+
+#crs(sb_ecos)@projargs
+#crs(sb_shp)@projargs
+```
+
+
+
+```{r}
+# --- make sub-raster with selected ecosystem 
+# ex: 65 = Southern California Oak Woodland and Savanna
+
+select_ecosytem <- function(all_ecos_raster, n_ecosystem){
+  # assumes ecosystem code exists in raster
+  eco_raster <- all_ecos_raster == n_ecosystem
+  values(eco_raster)[values(eco_raster) != TRUE] <- NA
+  values(eco_raster)[values(eco_raster) == TRUE] <- 1
+  
+  # reproject into non-LonLat crs if necessary
+  if(isLonLat(eco_raster) == TRUE){  
+    eco_raster <- projectRaster(eco_raster,crs=crs(sb_shp), method = "ngb" )
+    return(eco_raster)
+  }
+  return(eco_raster)
+}
+```
+
+
+```{r}
+oak_savanna <- select_ecosytem(sb_ecos,65)
+plot(oak_savanna)
+unique(oak_savanna)
+
+ecos_area <- getArea(oak_savanna)
+
+```
+
+```{r}
+EOO_polygon <- makeEOO(oak_savanna)
+plot(EOO_polygon)
+plot(oak_savanna, add = T, col = "green", legend = FALSE)
+EOO_area <- getAreaEOO(EOO_polygon)
+```
+
